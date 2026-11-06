@@ -13,6 +13,7 @@ on:
 jobs:
   map:
     runs-on: ubuntu-latest
+    timeout-minutes: 180
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.S3_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET }}
@@ -38,6 +39,11 @@ jobs:
           if echo "$BBOX" | grep -q null; then echo "area not found"; exit 1; fi
           osmium extract -b "$BBOX" algeria-latest.osm.pbf -o area.osm.pbf --overwrite
           ls -lh area.osm.pbf
+      - name: Download water polygons (with retries)
+        run: |
+          mkdir -p data/sources
+          curl -L --retry 8 --retry-delay 15 --retry-all-errors --connect-timeout 60 -o data/sources/water-polygons-split-3857.zip https://osmdata.openstreetmap.de/download/water-polygons-split-3857.zip
+          ls -lh data/sources/water-polygons-split-3857.zip
       - name: Vector tiles with building heights
         run: |
           wget -q https://github.com/onthegomap/planetiler/releases/latest/download/planetiler.jar
