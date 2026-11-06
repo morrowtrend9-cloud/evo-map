@@ -1,0 +1,59 @@
+name: Build map for one wilaya
+on:
+  workflow_dispatch:
+    inputs:
+      wilaya_code:
+        description: "Wilaya code, e.g. 03"
+        required: true
+        default: "03"
+      place:
+        description: "Search name of the area"
+        required: true
+        default: "Laghouat Province, Algeria"
+jobs:
+  map:
+    runs-on: ubuntu-latest
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.S3_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET }}
+      AWS_DEFAULT_REGION: ${{ secrets.S3_REGION }}
+      AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+      AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+      EP: ${{ secrets.S3_ENDPOINT }}
+      CODE: ${{ inputs.wilaya_code }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 21 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - run: mkdir work && unzip -q evo-map.zip -d work
+      - run: sudo apt-get update && sudo apt-get install -y osmium-tool jq
+      - name: Download Algeria data
+        run: wget -q https://download.geofabrik.de/africa/algeria-latest.osm.pbf
+      - name: Cut the wilaya
+        run: |
+          BBOX=$(curl -s -G -A "evo-map-build" "https://nominatim.openstreetmap.org/search" --data-urlencode "q=${{ inputs.place }}" --data-urlencode "format=json" --data-urlencode "limit=1" | jq -r '.[0].boundingbox | "\(.[2]),\(.[0]),\(.[3]),\(.[1])"')
+          echo "bbox: $BBOX"
+          if echo "$BBOX" | grep -q null; then echo "area not found"; exit 1; fi
+          osmium extract -b "$BBOX" algeria-latest.osm.pbf -o area.osm.pbf --overwrite
+          ls -lh area.osm.pbf
+      - name: Vector tiles with building heights
+        run: |
+          wget -q https://github.com/onthegomap/planetiler/releases/latest/download/planetiler.jar
+          java -Xmx10g -jar planetiler.jar --osm-path=area.osm.pbf --download --output=w$CODE.pmtiles --force
+          ls -lh w$CODE.pmtiles
+      - name: Road graph
+        run: |
+          osmium tags-filter area.osm.pbf w/highway -o roads.osm.pbf --overwrite
+          osmium export roads.osm.pbf -f geojsonseq --geometry-types=linestring -o roads.geojsonseq --overwrite
+          node work/build-graph.js roads.geojsonseq w$CODE.bin
+          ls -lh w$CODE.bin
+      - name: Fonts
+        working-directory: work
+        run: npm install && node build-glyphs.js
+      - name: Upload to our storage
+        run: |
+          aws s3 cp w$CODE.pmtiles s3://map/tiles/w$CODE.pmtiles --endpoint-url "$EP" --content-type application/octet-stream
+          aws s3 cp w$CODE.bin s3://map/graph/w$CODE.bin --endpoint-url "$EP" --content-type application/octet-stream
+          aws s3 sync work/glyphs s3://map/glyphs --endpoint-url "$EP" --content-type application/x-protobuf
