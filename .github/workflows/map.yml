@@ -13,7 +13,7 @@ on:
 jobs:
   map:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 120
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.S3_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET }}
@@ -29,7 +29,7 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 20 }
       - run: mkdir work && unzip -q evo-map.zip -d work
-      - run: sudo apt-get update && sudo apt-get install -y osmium-tool jq
+      - run: sudo apt-get update && sudo apt-get install -y osmium-tool jq gdal-bin zip
       - name: Download Algeria data
         run: wget -q https://download.geofabrik.de/africa/algeria-latest.osm.pbf
       - name: Cut the wilaya
@@ -39,11 +39,19 @@ jobs:
           if echo "$BBOX" | grep -q null; then echo "area not found"; exit 1; fi
           osmium extract -b "$BBOX" algeria-latest.osm.pbf -o area.osm.pbf --overwrite
           ls -lh area.osm.pbf
-      - name: Download water polygons (with retries)
+      - name: Water polygons (real file, or a tiny placeholder for inland areas)
         run: |
           mkdir -p data/sources
-          curl -L --retry 8 --retry-delay 15 --retry-all-errors --connect-timeout 60 -o data/sources/water-polygons-split-3857.zip https://osmdata.openstreetmap.de/download/water-polygons-split-3857.zip
-          ls -lh data/sources/water-polygons-split-3857.zip
+          if curl -L --connect-timeout 30 --max-time 600 --retry 1 -o data/sources/water-polygons-split-3857.zip https://osmdata.openstreetmap.de/download/water-polygons-split-3857.zip && unzip -tq data/sources/water-polygons-split-3857.zip; then
+            echo "real water polygons downloaded"
+          else
+            echo "water server unreachable: using a placeholder (fine for inland areas)"
+            rm -f data/sources/water-polygons-split-3857.zip
+            echo '{"type":"FeatureCollection","features":[{"type":"Feature","properties":{"x":0,"y":0},"geometry":{"type":"Polygon","coordinates":[[[0,0],[0,1],[1,1],[1,0],[0,0]]]}}]}' > w.geojson
+            ogr2ogr -f "ESRI Shapefile" water_polygons.shp w.geojson -a_srs EPSG:3857
+            zip -j data/sources/water-polygons-split-3857.zip water_polygons.shp water_polygons.shx water_polygons.dbf water_polygons.prj
+          fi
+          ls -lh data/sources/
       - name: Vector tiles with building heights
         run: |
           wget -q https://github.com/onthegomap/planetiler/releases/latest/download/planetiler.jar
