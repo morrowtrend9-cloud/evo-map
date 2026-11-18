@@ -1,0 +1,42 @@
+<!doctype html><html><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1"><link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel=stylesheet>
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script><script src="https://unpkg.com/pmtiles@3.2.0/dist/pmtiles.js"></script><style>html,body{margin:0;height:100%}#m{position:absolute;top:0;bottom:260px;left:0;right:0}#log{position:absolute;bottom:0;left:0;right:0;height:260px;overflow:auto;background:#111;color:#9f9;font:10.5px monospace;padding:6px;box-sizing:border-box}</style></head><body><div id=m></div><div id=log></div><script>var L=document.getElementById('log');function log(m){var d=document.createElement('div');d.textContent=new Date().toLocaleTimeString()+'  '+m;L.appendChild(d);L.scrollTop=L.scrollHeight}window.onerror=function(m,u,l){log('JS ERROR: '+m+' (line '+l+')')};window.addEventListener('unhandledrejection',function(e){log('UNHANDLED: '+e.reason)});
+
+var PROTO=new pmtiles.Protocol();maplibregl.addProtocol('pmtiles',function(p,a){log('PROTOCOL call: '+p.type+' '+String(p.url).slice(-34));var r=PROTO.tile(p,a);var j=p.type==='json';return Promise.resolve(r).then(function(x){if(j&&x&&x.data){log('TILEJSON bounds were: '+JSON.stringify(x.data.bounds)+' (removed) zoom '+x.data.minzoom+'-'+x.data.maxzoom);delete x.data.bounds}else log('PROTOCOL ok: '+(x&&x.data&&x.data.byteLength!==undefined?x.data.byteLength+' bytes':'?'));return x},function(e){log('PROTOCOL ERROR: '+e);throw e})});
+try{maplibregl.setRTLTextPlugin('https://unpkg.com/@mapbox/mapbox-gl-rtl-text@0.3.0/mapbox-gl-rtl-text.js',null,true)}catch(e){}
+function evoStyle(c){
+ var N=c.lang==='fr'?['coalesce',['get','name:fr'],['get','name:latin'],['get','name']]:['coalesce',['get','name:ar'],['get','name:latin'],['get','name']];
+ var W=function(a,b,c2,d){return ['interpolate',['exponential',1.5],['zoom'],a,b,c2,d]};
+ var L=function(id,cls,col,w,cap){return {id:id,type:'line',source:'om','source-layer':'transportation',filter:['in','class'].concat(cls),layout:{'line-cap':'round','line-join':'round'},paint:{'line-color':col,'line-width':w}}};
+ var lbl=function(id,sl,filter,size,minz,color){return {id:id,type:'symbol',source:'om','source-layer':sl,minzoom:minz,filter:filter,layout:{'text-field':N,'text-font':c.font,'text-size':size,'text-max-width':8},paint:{'text-color':color,'text-halo-color':'#FFFFFF','text-halo-width':1.6}}};
+ return {version:8,glyphs:c.glyphs,sources:{om:{type:'vector',url:'pmtiles://'+c.pmtiles,attribution:'© OpenMapTiles © OpenStreetMap'}},layers:[
+  {id:'bg',type:'background',paint:{'background-color':'#F3EFE6'}},
+  {id:'wood',type:'fill',source:'om','source-layer':'landcover',filter:['==','class','wood'],paint:{'fill-color':'#D4E2C3'}},
+  {id:'grass',type:'fill',source:'om','source-layer':'landcover',filter:['==','class','grass'],paint:{'fill-color':'#E1EACE'}},
+  {id:'res',type:'fill',source:'om','source-layer':'landuse',filter:['==','class','residential'],paint:{'fill-color':'#ECE6DA'}},
+  {id:'park',type:'fill',source:'om','source-layer':'park',paint:{'fill-color':'#D7E7C6'}},
+  {id:'water',type:'fill',source:'om','source-layer':'water',paint:{'fill-color':'#B7D3EB'}},
+  {id:'waterway',type:'line',source:'om','source-layer':'waterway',paint:{'line-color':'#B7D3EB','line-width':1.3}},
+  {id:'bld',type:'fill',source:'om','source-layer':'building',minzoom:13,paint:{'fill-color':'#E4DED1','fill-outline-color':'#D2CBBB'}},
+  L('r-min-c',['minor','service','track'],'#D6D0C2',W(12,0.8,18,13)), L('r-min',['minor','service','track'],'#FFFFFF',W(12,0.5,18,10)),
+  L('r-sec-c',['tertiary','secondary'],'#E2BC8C',W(9,0.8,18,18)), L('r-sec',['tertiary','secondary'],'#FFF3D2',W(9,0.4,18,14)),
+  L('r-main-c',['primary','trunk','motorway'],'#D49B58',W(6,0.8,18,24)), L('r-main',['primary','trunk','motorway'],'#FFD789',W(6,0.4,18,19)),
+  {id:'road-name',type:'symbol',source:'om','source-layer':'transportation_name',minzoom:14,layout:{'symbol-placement':'line','text-field':N,'text-font':c.font,'text-size':12},paint:{'text-color':'#5B6475','text-halo-color':'#FFFFFF','text-halo-width':1.6}},
+  lbl('pl-city','place',['in','class','city','town'],['interpolate',['linear'],['zoom'],5,12,12,19],4,'#1B2236'),
+  lbl('pl-small','place',['in','class','village','suburb','neighbourhood','hamlet'],12,10,'#4B5563')]}}
+function makeStyle(c){return c.pmtiles?evoStyle(c):c.other}
+
+var BASE='https://gouwshxddfntfjmjfmxc.supabase.co/storage/v1/object/public/map',URL_=BASE+'/tiles/w03.pmtiles';
+var CFG={pmtiles:URL_,glyphs:BASE+'/glyphs/{fontstack}/{range}.pbf',font:['Noto Sans Arabic Regular','Noto Sans Regular'],lang:'ar',other:{}};
+log('v4 page, maplibre '+maplibregl.getVersion()+', origin='+location.origin+', protocol='+location.protocol);
+new pmtiles.PMTiles(URL_).getHeader().then(function(h){log('HEADER bounds: lon '+h.minLon+' .. '+h.maxLon+' , lat '+h.minLat+' .. '+h.maxLat+' | center '+h.centerLon+','+h.centerLat)}).catch(function(e){log('HEADER FAILED: '+e)});
+var map=new maplibregl.Map({container:'m',style:makeStyle(CFG),center:[3.0246,34.1399],zoom:15,pitch:0,attributionControl:false});
+map.on('error',function(e){log('MAP ERROR: '+String((e&&e.error&&e.error.message)||(e&&e.message)||'?').slice(0,200))});
+map.on('load',function(){log('event: LOAD done')});
+map.on('idle',function(){var f=map.queryRenderedFeatures();log('event: idle, features on screen: '+f.length)});
+setTimeout(function(){log('--- 12 s later: tiles loaded = '+map.areTilesLoaded()+', zoom '+map.getZoom().toFixed(1))},12000);
+
+setTimeout(function(){var so=map.getSource('om'),sc=map.style&&map.style.sourceCaches&&map.style.sourceCaches.om;
+log('SOURCE om: loaded='+(so&&so.loaded())+' tiles='+(so&&JSON.stringify(so.tiles))+' zoom '+(so&&so.minzoom)+'-'+(so&&so.maxzoom));
+log('TILES in cache: '+(sc?Object.keys(sc._tiles).length:'n/a')+' states: '+(sc?Object.keys(sc._tiles).map(function(k){return sc._tiles[k].state}).join(','):''));
+log('canvas '+map.getCanvas().width+'x'+map.getCanvas().height+', zoom '+map.getZoom().toFixed(2)+', center '+map.getCenter().lng.toFixed(4)+','+map.getCenter().lat.toFixed(4))},6000);
+</script></body></html>
