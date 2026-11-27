@@ -1,0 +1,22 @@
+name: Fix fonts (combine Arabic + Latin)
+on: workflow_dispatch
+jobs:
+  fonts:
+    runs-on: ubuntu-latest
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.S3_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET }}
+      AWS_DEFAULT_REGION: ${{ secrets.S3_REGION }}
+      AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+      AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+      EP: ${{ secrets.S3_ENDPOINT }}
+    steps:
+      - name: Build the combined font stack
+        run: |
+          STACK="Noto Sans Arabic Regular,Noto Sans Regular"
+          for s in $(seq 0 256 65280); do
+            r="$s-$((s+255))"
+            case $s in 1536|1792|2048|64256|64512|64768|65024) F="Noto Sans Arabic Regular";; *) F="Noto Sans Regular";; esac
+            aws s3 cp "s3://map/glyphs/$F/$r.pbf" - --endpoint-url "$EP" --only-show-errors | aws s3 cp - "s3://map/glyphs/$STACK/$r.pbf" --endpoint-url "$EP" --content-type application/x-protobuf --only-show-errors
+          done
+          echo finished
